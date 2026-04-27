@@ -533,29 +533,16 @@ def main():
     if txs_to_upsert:
         sb_upsert("transactions", txs_to_upsert)
 
-    # 3. Load ALL active transactions from Supabase (tracker_status != solved/won/closed)
-    skip_statuses = [
-        "Dispute Won - 1st presentment",
-        "Dispute won - 2nd presentment",
-        "Closed - No response from customer",
-        "Closed - < 15 USD",
-        "Client recognized after dispute request",
-        "Closed - Decided not to continue after 2nd",
-        "Rejected - Refunded by merchant",
-        "Refunded",
-        "Trx failed",
-        "Evidence Submitted",
-        "Not eligible",
-    ]
-    skip_filter = "&".join(f"tracker_status=neq.{requests.utils.quote(s)}" for s in skip_statuses)
-    active_txs = sb_get("transactions", f"select=*&{skip_filter}&order=ticket_id.asc&limit=2000")
-    log.info(f"Active transactions in Supabase: {len(active_txs)}")
-
-    # Also include txs with NULL tracker_status (brand new)
+    # 3. Load ONLY new transactions (tracker_status IS NULL = came fresh from Metabase)
+    # Historical data imported from Sheets has tracker_status set → ignored automatically
     new_txs = sb_get("transactions", "select=*&tracker_status=is.null&order=ticket_id.asc&limit=1000")
-    log.info(f"New transactions (no status): {len(new_txs)}")
+    log.info(f"New transactions to process (tracker_status NULL): {len(new_txs)}")
 
-    all_active = {t["id"]: t for t in active_txs + new_txs}
+    if not new_txs:
+        log.info("No new transactions to process — nothing to do")
+        return
+
+    all_active = {t["id"]: t for t in new_txs}
 
     # 4. Load ticket groups
     groups_raw = sb_get("ticket_groups", "select=*&limit=2000")
@@ -573,11 +560,17 @@ def main():
 
     log.info(f"Processing {len(by_ticket)} ticket groups")
 
-    # 6. Process each group
+    # 6. Process each group — only valid integer ZD ticket IDs
     processed = 0
     for ticket_id, txs in by_ticket.items():
         try:
-            group = groups.get(ticket_id, {"id": ticket_id, "org_id": txs[0].get("org_id", ""), "org_name": txs[0].get("org_name", ""), "month": txs[0].get("month", "")})
+            # Skip malformed IDs (e.g. "153162.0" from old Sheets import)
+            clean_id = str(ticket_id).replace(".0", "").strip()
+            if not clean_id.isdigit():
+                log.info(f"  Skipping invalid ticket_id: {ticket_id}")
+                continue
+            ticket_id = clean_id  # use clean version for ZD calls
+            group = groups.get(ticket_id, groups.get(ticket_id + ".0", {"id": ticket_id, "org_id": txs[0].get("org_id", ""), "org_name": txs[0].get("org_name", ""), "month": txs[0].get("month", "")}))
             process_group(ticket_id, txs, group)
             processed += 1
             time.sleep(0.3)  # Be kind to ZD rate limits
