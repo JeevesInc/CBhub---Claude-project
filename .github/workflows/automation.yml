@@ -1,1 +1,33 @@
+name: CB Hub Automation
 
+on:
+  schedule:
+    - cron: '0,40 * * * *'
+    - cron: '20 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run automation worker
+        env:
+          METABASE_API_KEY: ${{ secrets.METABASE_API_KEY }}
+          METABASE_URL: https://jeeves.metabaseapp.com
+          SUPABASE_URL: https://vykfbnrrvtnvcvjudlef.supabase.co
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          ZENDESK_URL: https://jeeves.zendesk.com
+          ZENDESK_TOKEN: ${{ secrets.ZENDESK_TOKEN }}
+          DAYS_BACK: "7"
+        run: python worker.py
