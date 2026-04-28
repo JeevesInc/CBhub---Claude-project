@@ -1,9 +1,9 @@
 name: CB Hub Automation
 
 on:
-  schedule:
-    - cron: '0,40 * * * *'
-    - cron: '20 * * * *'
+  # schedule:
+  #   - cron: '0,40 * * * *'
+  #   - cron: '20 * * * *'
   workflow_dispatch:
 
 jobs:
